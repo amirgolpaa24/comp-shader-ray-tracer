@@ -2,11 +2,63 @@
 layout (local_size_x = 16, local_size_y = 16) in;
 layout (binding = 0, rgba32f) uniform image2D destTex;
 
+uniform vec3 cameraPos;      // Camera position
+uniform vec3 cameraDir;      // Forward direction of the camera
+uniform vec3 cameraUp;       // Up direction for orientation
+uniform vec3 lightPos;       // Light source position
+uniform ivec2 screenSize;    // Screen resolution
+
+// Intersection function for a sphere
+bool intersectSphere(vec3 rayOrigin, vec3 rayDir, vec3 sphereCenter, float sphereRadius, out float t) {
+    vec3 oc = rayOrigin - sphereCenter;
+    float b = dot(oc, rayDir);
+    float c = dot(oc, oc) - sphereRadius * sphereRadius;
+    float h = b * b - c;
+    if (h < 0.0) return false;
+    h = sqrt(h);
+    t = -b - h;
+    return true;
+}
+
+// Basic shading function for diffuse and specular lighting
+vec4 shade(vec3 hitPoint, vec3 normal, vec3 lightPos, vec3 viewDir) {
+    vec3 lightDir = normalize(lightPos - hitPoint);
+    float diff = max(dot(normal, lightDir), 0.0);
+    vec3 reflectDir = reflect(-lightDir, normal);
+    float spec = pow(max(dot(viewDir, reflectDir), 0.0), 32.0);
+    vec3 color = diff * vec3(1.0, 0.5, 0.3) + spec * vec3(1.0);  // Diffuse and specular
+    return vec4(color, 1.0);
+}
+
 void main() {
-    ivec2 storePos = ivec2(gl_GlobalInvocationID.xy);
-    vec2 uv = vec2(storePos) / vec2(800.0, 600.0);
-    
-    vec4 color = vec4((uv.x*uv.x + uv.y*uv.y), 0.0, 0.0, 0.0);
-    
-    imageStore(destTex, storePos, color);
+    ivec2 pixel = ivec2(gl_GlobalInvocationID.xy);
+
+    // Normalize pixel coordinates to the range [-1, 1]
+    vec2 uv = (vec2(pixel) / vec2(screenSize)) * 2.0 - 1.0;
+    uv.x *= float(screenSize.x) / float(screenSize.y);  // Correct for aspect ratio
+
+    // Calculate ray direction based on camera orientation
+    vec3 cameraRight = normalize(cross(cameraDir, cameraUp)); // Right vector
+    vec3 rayDir = normalize(cameraDir + uv.x * cameraRight + uv.y * cameraUp);
+
+    // Initialize color
+    vec4 color = vec4(0.0);
+
+    // Sphere properties
+    vec3 sphereCenter = vec3(0.0, 0.0, -5.0);
+    float sphereRadius = 1.0;
+    float t;
+
+    // Check for ray-sphere intersection
+    if (intersectSphere(cameraPos, rayDir, sphereCenter, sphereRadius, t)) {
+        vec3 hitPoint = cameraPos + t * rayDir;
+        vec3 normal = normalize(hitPoint - sphereCenter);
+        vec3 viewDir = -rayDir;
+
+        // Calculate the color using the shading function
+        color = shade(hitPoint, normal, lightPos, viewDir);
+    }
+
+    // Write the color to the texture
+    imageStore(destTex, pixel, color);
 }
